@@ -314,6 +314,7 @@
         .btn-main:hover { transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(139, 38, 53, 0.4); }
         .btn-main:hover::before { opacity: 1; }
 
+        /* The default display is none (hidden on desktop) */
         .mobile-bottom-bar { display: none; }
 
         .modal-overlay {
@@ -401,6 +402,7 @@
         .success-order-id { font-size: 18px; color: var(--text-primary); font-weight: 700; margin-top: 15px; font-family: monospace; background: #fff; padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border-subtle); }
         @keyframes bounce { 0%, 20%, 50%, 80%, 100% {transform: translateY(0);} 40% {transform: translateY(-20px);} 60% {transform: translateY(-10px);} }
 
+        /* Mobile specific styles */
         @media (max-width: 900px) {
             .page-desktop { display: none; }
             .page-mobile { display: flex; flex-direction: column; }
@@ -410,6 +412,7 @@
             body { padding-bottom: 110px; }
             .summary-section .btn-main { display: none; }
 
+            /* On mobile, this becomes flex */
             .mobile-bottom-bar {
                 display: flex; position: fixed; bottom: 0; left: 0; width: 100%;
                 background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px);
@@ -757,8 +760,8 @@
 
         let baseTotal = 0;
         const codFee = 100;
-        let masterCart = []; // The permanent cart (Source of Truth)
-        let checkoutItems = []; // The temporary list for this transaction
+        let masterCart = [];
+        let checkoutItems = [];
         let addressExists = false;
         let currentUser = null;
         let currentAddressData = null;
@@ -882,20 +885,15 @@
         }
 
         function loadCart() {
-            // 1. Load from storage
             masterCart = JSON.parse(localStorage.getItem('vastramaya_cart')) || [];
             
-            // 2. Assign temporary unique IDs to track items during this session
             masterCart.forEach((item, index) => {
                 if(!item._checkoutId) {
                     item._checkoutId = Date.now() + '-' + index + '-' + Math.random().toString(36).substr(2, 9);
                 }
             });
 
-            // 3. Create a shallow copy for the checkout UI
-            // This ensures we can remove items from checkoutItems without affecting masterCart immediately
             checkoutItems = [...masterCart]; 
-            
             renderCheckoutList();
         }
 
@@ -903,14 +901,15 @@
             if (checkoutItems.length === 0) {
                 document.getElementById('checkout-form-section').style.display = 'none';
                 document.getElementById('checkout-summary-section').style.display = 'none';
+                // Force Hide
                 document.getElementById('mobile-bottom-bar').style.display = 'none';
                 document.getElementById('empty-cart-msg').classList.add('active');
                 return;
             } else {
-                // Ensure UI is visible if we are coming back from empty state
                 document.getElementById('checkout-form-section').style.display = 'block';
                 document.getElementById('checkout-summary-section').style.display = 'block';
-                document.getElementById('mobile-bottom-bar').style.display = 'flex';
+                // Clear inline style so CSS media query takes over
+                document.getElementById('mobile-bottom-bar').style.display = ''; 
                 document.getElementById('empty-cart-msg').classList.remove('active');
             }
 
@@ -938,7 +937,6 @@
             });
 
             subtotalDisplay.innerText = `₹${baseTotal.toLocaleString('en-IN')}`;
-            // Update UI totals
             if(document.getElementById('radio-cod').checked) {
                 setCodUI();
             } else {
@@ -947,12 +945,8 @@
         }
 
         function removeCheckoutItem(uniqueId) {
-            // Only remove from the temporary checkout list
             checkoutItems = checkoutItems.filter(item => item._checkoutId !== uniqueId);
-            // Re-render the UI logic
             renderCheckoutList();
-            // NOTE: We do NOT update LocalStorage or Database here. 
-            // The item remains in the cart until the order is successfully placed.
         }
 
         function initNavbarUI() {
@@ -1067,7 +1061,6 @@
                 return;
             }
             
-            // Safety check: Don't allow empty checkout
             if (checkoutItems.length === 0) {
                 alert("Your checkout list is empty.");
                 return;
@@ -1144,7 +1137,7 @@
             const orderDetails = {
                 orderId: orderId,
                 userId: currentUser ? currentUser.uid : 'guest',
-                items: checkoutItems, // Use only the items that were present in checkout
+                items: checkoutItems, 
                 address: currentAddressData,
                 amount: amount,
                 paymentMethod: method,
@@ -1156,22 +1149,12 @@
             try {
                 await db.collection('orders').doc(orderId).set(orderDetails);
 
-                // --- KEY LOGIC UPDATE ---
-                // We need to remove ONLY the bought items from masterCart
-                // checkoutItems contains what we bought. masterCart contains everything.
-                
                 const boughtIds = checkoutItems.map(item => item._checkoutId);
-                
-                // Filter masterCart to keep only items NOT in the bought list
                 const remainingCart = masterCart.filter(item => !boughtIds.includes(item._checkoutId));
-
-                // Clean up the temporary ID before saving back to storage
                 remainingCart.forEach(item => delete item._checkoutId);
 
-                // Update Local Storage with remaining items
                 localStorage.setItem('vastramaya_cart', JSON.stringify(remainingCart));
                 
-                // Update Firebase with remaining items
                 if (currentUser) {
                     await db.collection('users').doc(currentUser.uid).update({ cart: remainingCart });
                 }
